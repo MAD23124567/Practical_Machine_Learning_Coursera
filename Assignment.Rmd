@@ -1,0 +1,131 @@
+---
+title: "Practical_Machine_Learning_Assignment"
+author: "MadhurimaChakraborty"
+date: "12/10/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+# Introduction
+The objective of this assignment is to quantify how well the devices predict their physical fitness levels. The data is collected from accelerometers on the belt, forearm, arm and dumbell of 6 participants.
+
+# Information about the data 
+1. The dataset has 159 features. The target variable is "classe"
+2. The total number of rows for each dataset 
+   - Training : 19622
+   - Testing  : 20 
+   - Target Variable levels : A , B, C, D, E (5 categories)
+
+## Make the output readable
+```{r}
+rm(list=ls(all=TRUE))
+startTime<-Sys.time()
+library(knitr, quietly = TRUE)
+opts_chunk$set(echo = TRUE, cache= TRUE, results = 'hold')
+```
+## Load libraries
+```{r setoptions}
+library(caret)
+library(randomForest, quietly = TRUE)
+set.seed(1)
+```
+
+## Laoding dataset
+
+```{r}
+training_url<-"https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+testing_url<-"https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+train_file<-"./data/pml-training.csv"
+test_file<-"./data/pml-testing.csv"
+
+if(!file.exists(train_file)){
+        download.file(training_url,destfile = train_file)
+}
+
+if(!file.exists(test_file)){
+        download.file(testing_url,destfile = test_file)
+}
+
+train_raw<-read.csv(url(training_url))
+test_raw<-read.csv(url(testing_url))
+```
+## Data Preprocessing
+
+To improve the model's prediction power we initially need to remove the variables having near zero variances from both training and testing data. Further we should remove all the variables having missing values
+```{r}
+# Remove near zero covariates
+
+inTrain<-createDataPartition(y=train_raw$classe,p=0.7,list=FALSE)
+TrainSet<-train_raw[inTrain,]
+ValidationSet<-train_raw[-inTrain,]
+
+
+# Removing near zero variance variables
+
+NZV <- nearZeroVar(TrainSet)
+TrainSet <- TrainSet[, -NZV]
+ValidationSet <- ValidationSet[, -NZV]
+
+# Remove variables with missing values
+# remove variables that are mostly NA
+AllNA    <- sapply(TrainSet, function(x) mean(is.na(x))) > 0.95
+TrainSet <- TrainSet[, AllNA==FALSE]
+ValidationSet  <- ValidationSet[, AllNA==FALSE]
+
+## Remove unnecessary columns 
+
+colRm_train<-c("user_name","raw_timestamp_part_1","raw_timestamp_part_2","cvtd_timestamp","num_window")
+colRm_valid<-c("user_name","raw_timestamp_part_1","raw_timestamp_part_2","cvtd_timestamp","num_window")
+training_final<-TrainSet[,!(names(TrainSet) %in% colRm_train)]
+valid_final<-ValidationSet[,!(names(ValidationSet) %in% colRm_valid)]
+
+training_final$classe<-as.factor(training_final$classe)
+valid_final$classe<-as.factor(valid_final$classe)
+dim(training_final)
+dim(valid_final)
+```
+
+## Modelling -- Random Forest Model
+
+```{r}
+# Plotting the distribution of each class to be predicted
+ggplot(train_raw)+geom_bar(aes(x=classe))
+
+# Fit RF model
+set.seed(12345)
+
+controlRF <- trainControl(method="cv", number=3, verboseIter=FALSE)
+modFitRandForest <- train(classe ~ ., data=training_final, method="rf",
+                          trControl=controlRF)
+modFitRandForest$finalModel
+
+# Prediction on validation dataset
+predictRF<-predict(modFitRandForest,newdata = valid_final)
+conf_RF<-confusionMatrix(predictRF,valid_final$classe)
+conf_RF
+
+
+```
+# Modelling -- Generalized Boosted Model
+
+```{r}
+set.seed(12345)
+controlGBM <- trainControl(method = "repeatedcv", number = 5, repeats = 1)
+modFitGBM  <- train(classe ~ ., data=training_final, method = "gbm",
+                    trControl = controlGBM, verbose = FALSE)
+modFitGBM$finalModel
+
+# prediction on Validation dataset
+predictGBM <- predict(modFitGBM, newdata=valid_final)
+confMatGBM <- confusionMatrix(predictGBM, valid_final$classe)
+confMatGBM
+```
+        
+## Applying the model on the test dataset 
+
+```{r}
+predictTest<-predict(modFitGBM,newdata = test_raw)
+print(predictTest)
+```
